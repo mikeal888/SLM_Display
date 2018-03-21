@@ -7,6 +7,8 @@ import display_hologram as dh
 from win32api import EnumDisplayMonitors
 import cv2
 
+import display_hologram as dh
+
 def Gaussian(xdata, x0, sigma):
 
 	const = (1/(sigma*np.sqrt(2*np.pi)))*(np.max(xdata)-np.min(xdata))/len(xdata)
@@ -58,19 +60,21 @@ def create_parameter_array(A,theta,l,p):
 
 class Qstate:
 
-	def __init__(self, r, phi):
+	def __init__(self, r, phi, wavelength=0.001, w0=1):
 		
 		self.state = None
 		self.r = r
 		self.phi = phi
+		self.wavelength= wavelength
+		self.w0 = w0
 
 	def add_mode(self, A, theta, l, p):
 
 		if self.state is None:
-			self.state = A*np.exp(1j*theta)*LG_pl(self.r, self.phi, l, p)
+			self.state = A*np.exp(1j*theta)*LG_pl(self.r, self.phi, l, p, wavelength=self.wavelength, w0=self.w0)
 		
 		else:
-			self.state += A*np.exp(1j*theta)*LG_pl(self.r, self.phi, l, p)
+			self.state += A*np.exp(1j*theta)*LG_pl(self.r, self.phi, l, p, wavelength=self.wavelength, w0=self.w0)
 
 
 	def superposition(self, Params):
@@ -81,13 +85,7 @@ class Qstate:
 			self.add_mode(ii[0],ii[1],ii[2],ii[3])
 
 
-	def add_noise(self, sigma=0.2):
-		# add noise 
-
-		self.state = np.real(np.conjugate(self.state)*self.state)*(1+np.random.normal(0,sigma,self.state.shape))
-
-
-	def intensity(self, noise=False, sigma=0.2):
+	def intensity_image(self, noise=False, sigma=0.2):
 
 		profile = np.real(np.conjugate(self.state)*self.state)
 		x, y = polar2cartesian(self.r, self.phi)
@@ -97,13 +95,39 @@ class Qstate:
 		plt.ylim((np.min(y)/2,np.max(y)/2))
 		plt.show()
 
-	def phase(self):
+	def phase_image(self):
 
 		gradient = np.angle(self.state)
 		x, y = polar2cartesian(self.r, self.phi)
 		cmap = 'gray'
 		plt.pcolormesh(x, y, gradient, cmap=cmap)
 		plt.show()
+
+	def josa_array(self):
+		return np.exp(1j*np.abs(self.state)*np.angle(self.state)/(2*np.pi))
+
+def normalise_image(image):
+	# open cv needs image array to be between [0,1]
+	image = image - np.min(image)
+	image = image/np.max(image)
+	return image
+
+
+def display_image(image, on_monitor=2):
+
+	# Get monitors. Assuming that the slm is identified as monitor 2
+
+	monitors = EnumDisplayMonitors()
+
+	assert len(monitors) >= 2, "Less than 2 monitors detected, check display settings"
+
+	x_loc, y_loc = monitors[on_monitor-1][2][0], monitors[on_monitor-1][2][1]
+
+	image = normalise_image(image)
+
+	cv2.imshow("image", image)
+	cv2.setWindowProperty("image", cv2.WND_PROP_FULLSCREEN, cv2.WINDOW_FULLSCREEN)
+	cv2.moveWindow("image",x_loc, y_loc)		
 
 
 if __name__ == '__main__':
@@ -112,9 +136,9 @@ if __name__ == '__main__':
 	pxl_x, pxl_y = (monitors[1][2][2]-monitors[1][2][0]), (monitors[1][2][3]-monitors[1][2][1])
 
 	# coordinates
-	x_range, y_range = 15, 15
+	beam_waist = 2
+	x_range, y_range = 5, 5
 	x0, y0 = 0, 0
-	# pxl_x, pxl_y = 800, 600
 	z = 0
 
 	x = np.linspace(-x_range+x0,x_range,pxl_x)
@@ -127,14 +151,15 @@ if __name__ == '__main__':
 	# create superposition
 	A = np.array([1,0,1])
 	theta = np.array([0,0,0])
-	l = np.array([-3,0,3])
+	l = np.array([1,0,-1])
 	p = np.array([0,0,0])
 
 	parameter_array = create_parameter_array(A, theta, l, p)
 
-	state1 = Qstate(r_mesh,phi_mesh)
+	state1 = Qstate(r_mesh,phi_mesh, w0=beam_waist)
 	state1.superposition(parameter_array)
-	phase = np.angle(state1.state)
+	phase = np.angle(state1.josa_array())
+	test = np.angle(state1.state)
 	# state1.add_noise(sigma=0.000001)
 
 
