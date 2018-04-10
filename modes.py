@@ -1,6 +1,7 @@
 import numpy as np 
 from scipy.special import eval_genlaguerre
 from scipy.misc import factorial
+from scipy.interpolate import interp1d
 import matplotlib.pyplot as plt
 from matplotlib import cm
 import display_hologram as dh
@@ -10,10 +11,11 @@ import cv2
 import display_hologram as dh
 
 ## ---- ------ ---- ------ Define Hologram functions first ---------------------- ##
-def normalise_image(image):
-	# open cv needs image array to be between [0,1]
+def convert_image(image):
+	# open cv needs image array to be between [0,255] as uint8 dtype
 	image = image - np.min(image)
 	image = image/np.max(image)
+	image = np.uint8((2**8)*image)
 	return image
 
 
@@ -27,22 +29,42 @@ def display_image(image, on_monitor=2):
 
 	x_loc, y_loc = monitors[on_monitor-1][2][0], monitors[on_monitor-1][2][1]
 
-	if int(np.max(image)) == 1 and int(np.min(image)) == 0:
-		pass
-	else:
-		image = normalise_image(image)
-
 	cv2.imshow("image", image)
 	cv2.setWindowProperty("image", cv2.WND_PROP_FULLSCREEN, cv2.WINDOW_FULLSCREEN)
 	cv2.moveWindow("image",x_loc, y_loc)		
 
 def display_two_images(image1,image2,ax=1):
 
-	image1 = normalise_image(image1)
-	image2 = normalise_image(image2)
 	image = np.concatenate((image1, image2), axis=ax)
 	display_image(image)
 
+def blazzing(image, points=None):
+	# create blazing function uint8 ==> 258
+
+	if points is None:
+		points = np.array([[-np.pi,-np.pi]
+			,[-0.5,-np.pi]
+			,[0,0]
+			,[0.5,np.pi]
+			,[np.pi,np.pi],])
+
+	spline = interp1d(points[:,0], points[:,1], kind='cubic')
+	colormap_values = np.linspace(-np.pi,np.pi,(2**8), endpoint=True)
+	colormap = spline(colormap_values)
+	np.place(colormap, colormap>np.pi, np.pi)
+	np.place(colormap, colormap<-np.pi, -np.pi)
+
+
+	colormap = np.uint8((255)*(colormap+np.pi)/(2*np.pi))
+
+
+	r,c = np.shape(image)
+
+	for ii in range(r):
+		for jj in range(c):
+			image[ii,jj] = colormap[image[ii,jj]-1]
+
+	return(image)
 ## -------------------------- Define misc functions ----------------------##
 
 def Gaussian(xdata, x0, sigma):
@@ -150,7 +172,7 @@ class Qstate:
 		else:
 			self.hologram_matrix = np.exp(1j*np.abs(self.hologram_matrix)*np.angle(self.hologram_matrix)/(2*np.pi))
 
-	def blazzing(self, xangle=0, yangle=0):
+	def add_angles(self, xangle=0, yangle=0):
 		# angle in millirad
 
 		if self.hologram_matrix is None:
@@ -158,15 +180,19 @@ class Qstate:
 		else:
 			self.hologram_matrix = np.exp(1j*(xangle)*self.x)*np.exp(1j*(yangle)*self.y)*self.hologram_matrix
 
-	def create_hologram_matrix(self, xrad=0, yrad=0, blaze=False, josa=False):
+	def reset_hologram(self):
+		# reset hologram to initial state
+		self.hologram_matrix = self.state
+
+	def create_hologram_matrix(self, xrad=0, yrad=0, add_angle=False, josa=False):
 
 		# This function will create matrix array and erase previous parameters
 		# This will allow you to update hologram and erase old parameters
 
-		self.hologram_matrix = self.state
+		self.reset_hologram()
 		
-		if blaze is True:
-			self.blazzing(xrad, yrad)
+		if add_angle is True:
+			self.add_angles(xrad, yrad)
 
 		if josa is True:
 			self.josa_array()
@@ -193,13 +219,17 @@ if __name__ == '__main__':
 		pxl_x = int(pxl_x/2)
 		x_range = x_range/2
 
-	## ----- Encoding Hologram E parameters -------- ##
+	wavelength = 810e-9
 
-	# x_range, y_range = 20, 20
+	## ----- Encoding Hologram E parameters -------- ##
+	add_angle_e = True
+	josa_e = True
+	blazzing_e = True
+	
 	x0_e, y0_e = 0, 0
 	z_e = 0
-	xrad_e = 10
-	yrad_e = -1
+	xrad_e = 20
+	yrad_e = 0
 
 	x_e = np.linspace(-x_range+x0_e, x_range+x0_e,pxl_x)
 	y_e = np.linspace(-y_range+y0_e ,y_range+y0_e ,pxl_y)
@@ -214,47 +244,101 @@ if __name__ == '__main__':
 	# create superposition
 	A_e = np.array([1,0,0])
 	theta_e = np.array([0,0,0])
-	l_e = np.array([4,0,0])
+	l_e = np.array([2,0,0])
 	p_e = np.array([0,0,0])
 
 	parameter_array_e = create_parameter_array(A_e, theta_e, l_e, p_e)
 
-	Encoding = Qstate(r_mesh_e,phi_mesh_e, w0=beam_waist_e)
+	Encoding = Qstate(r_mesh_e,phi_mesh_e, wavelength=wavelength, w0=beam_waist_e)
 	Encoding.superposition(parameter_array_e)
-	hologram_matrix_e = Encoding.create_hologram_matrix(xrad_e,yrad_e,blaze=True,josa=True)
+	hologram_matrix_e = Encoding.create_hologram_matrix(xrad_e,yrad_e,add_angle=add_angle_e,josa=josa_e)
 	
 	## --------- Measurement Hologram M parameters ------ #
+	add_angle_m = True
+	josa_m = True
+	blazzing_m = True
+
 	x0_m, y0_m = 0, 0
 	z_m = 0
-	xrad_m = 4
-	yrad_m = 1
+	xrad_m = 20
+	yrad_m = 0
 
-	x_m = np.linspace(-x_range+x0_m, x_range+x0_m,pxl_x)
+	x_m = np.linspace(-x_range+x0_m ,x_range+x0_m ,pxl_x)
 	y_m = np.linspace(-y_range+y0_m ,y_range+y0_m ,pxl_y)
 
 	xx_m, yy_m = np.meshgrid(x_m,y_m)
 
 	r_mesh_m, phi_mesh_m = cartesian2polar(xx_m,yy_m)
 
-	beam_waist_m = 0.5
+	beam_waist_m = 1
 
-	A_m = np.array([1,0,0])
+	A_m = np.array([1,0,1])
 	theta_m = np.array([0,0,0])
-	l_m = np.array([1,0,0])
+	l_m = np.array([2,0,-2])
 	p_m = np.array([0,0,0])
 
 	parameter_array_m = create_parameter_array(A_m, theta_m, l_m, p_m)
 
-	Measurement = Qstate(r_mesh_m,phi_mesh_m, w0=beam_waist_m)
+	Measurement = Qstate(r_mesh_m,phi_mesh_m, wavelength=wavelength, w0=beam_waist_m)
 	Measurement.superposition(parameter_array_m)
-	hologram_matrix_m = Measurement.create_hologram_matrix(xrad_m,yrad_m,blaze=True,josa=False)
+	hologram_matrix_m = Measurement.create_hologram_matrix(xrad_m,yrad_m,add_angle=add_angle_m,josa=josa_m)
 
 	if two_display is True:
-		print("displaying two holograms | E | M |")
+		print("\n** ------  Displaying two holograms | E | M | ------ **\n")
+
+		print("## Hologram parameters ##\n")
+		print("Hologram dimensions in mm (w, h) = (%s, %s)"%(y_range,x_range))
+		print("Number of Pixels per hologram = (%s,%s)"%(pxl_x,pxl_y))
+
+		print("\n## Encoding parameters are: ##\n")
+		print("Centroid in mm (x0, y0) = (%s, %s)"%(x0_e,y0_e))
+		print("Beam size in mm w0=%s"%(beam_waist_e))
+
+		if add_angle_e:
+			print("Angles in millirad (x_angle, y_angle) = (%s, %s)"%(xrad_e,yrad_e))
+		else: 
+			print("No angle added")
+
+		if josa_e:
+			print("Josa intensity masking added")	
+
+		print("\n## Measurement parameters are: ##\n")
+		print("Centroid in mm (x0, y0) = (%s, %s)"%(x0_m,y0_m))
+		print("Beam size in mm w0=%s"%(beam_waist_m))
+
+		if add_angle_m:
+			print("Angles in millirad (x_angle, y_angle) = (%s, %s)"%(xrad_m,yrad_m))
+		if josa_m:
+			print("Josa intensity masking added")	
+
+		hologram_matrix_e = convert_image(hologram_matrix_e)
+		if blazzing_e is True:
+			hologram_matrix_e = blazzing(hologram_matrix_e, points=None)
+
+
+		hologram_matrix_m = convert_image(hologram_matrix_m)
+		if blazzing_m is True:
+			hologram_matrix_m = blazzing(hologram_matrix_m, points=None)
+
 		display_two_images(hologram_matrix_e, hologram_matrix_m)
 
 	else:
 		print("diplaying one hologram | E |")
+
+		print("## Hologram parameters ##\n")
+		print("Hologram dimensions in mm (w, h) = (%s, %s)"%(y_range,x_range))
+		print("Number of Pixels per hologram = (%s,%s)"%(pxl_x,pxl_y))
+		print("\n## Encoding parameters are: ##\n")
+		print("Centroid in mm (x0, y0) = (%s, %s)"%(x0_e,y0_e))
+		if add_angle_e:
+			print("Angles in millirad (x_angle, y_angle) = (%s, %s)"%(xrad_e,yrad_e))
+		else: 
+			print("No angle added")
+
+		hologram_matrix_e = convert_image(hologram_matrix_e)
+		if blazzing_e is True:
+			hologram_matrix_e = blazzing(hologram_matrix_e, points=None)
+
 		display_image(hologram_matrix_e)
 
 
