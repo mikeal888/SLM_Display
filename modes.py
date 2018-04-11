@@ -127,6 +127,10 @@ def LG_pl(r, phi, l, p, z=0, wavelength=0.001, w0=1):
 def create_parameter_array(A,theta,l,p):
 	return(np.transpose(np.append([A],[theta,l,p], axis=0)))
 
+def LensHologram(x,y,wavelength,f):
+	# the offset (x-x_offset) is already taken into account by the x array
+	return np.exp( (-1j*np.pi/(f*wavelength))*((x**2)+(y**2)) )
+	
 ## ---------------------- Create Quantum state object ------------------------ ##
 # This class will be used to generate the holograms of given quantum states based of the 
 # parameter array
@@ -251,7 +255,7 @@ if __name__ == '__main__':
 	r_mesh_e, phi_mesh_e = cartesian2polar(xx_e,yy_e)
 
 	## Create encoding
-	beam_waist_e = 2
+	beam_waist_e = 1
 
 	# create superposition
 	A_e = np.array([1,0,0])
@@ -286,7 +290,7 @@ if __name__ == '__main__':
 
 	A_m = np.array([1,0,1])
 	theta_m = np.array([0,0,0])
-	l_m = np.array([2,0,-2])
+	l_m = np.array([12,0,-12])
 	p_m = np.array([0,0,0])
 
 	parameter_array_m = create_parameter_array(A_m, theta_m, l_m, p_m)
