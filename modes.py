@@ -10,12 +10,18 @@ import cv2
 
 import display_hologram as dh
 
+import time
+t0 = time.time()
 ## ---- ------ ---- ------ Define Hologram functions first ---------------------- ##
+def normalise_image(image):
+	image = image/np.sum(image)
+	return(image)
+
 def convert_image(image):
 	# open cv needs image array to be between [0,255] as uint8 dtype
 	image = image - np.min(image)
 	image = image/np.max(image)
-	image = np.uint8((2**8)*image)
+	image = np.floor((255)*image)
 	return image
 
 
@@ -28,6 +34,10 @@ def display_image(image, on_monitor=2):
 	assert len(monitors) >= 2, "Less than 2 monitors detected, check display settings"
 
 	x_loc, y_loc = monitors[on_monitor-1][2][0], monitors[on_monitor-1][2][1]
+
+	if image.dtype is not np.dtype('uint8'):
+		print('\nNOTE: IMAGE IS NOT UINT8. CONVERTING TO UINT8\n')
+		image = np.uint8(image)
 
 	cv2.imshow("image", image)
 	cv2.setWindowProperty("image", cv2.WND_PROP_FULLSCREEN, cv2.WINDOW_FULLSCREEN)
@@ -54,15 +64,17 @@ def blazzing(image, points=None):
 	np.place(colormap, colormap>np.pi, np.pi)
 	np.place(colormap, colormap<-np.pi, -np.pi)
 
-
-	colormap = np.uint8((255)*(colormap+np.pi)/(2*np.pi))
-
+	colormap = np.floor((255)*(colormap+np.pi)/(2*np.pi))
 
 	r,c = np.shape(image)
 
-	for ii in range(r):
-		for jj in range(c):
-			image[ii,jj] = colormap[image[ii,jj]-1]
+	# overlap parameter (avoids overlap between values)
+	op = 1000
+
+	for ii in range(len(colormap)):
+		image[image == ii] = op*colormap[ii]
+
+	image = image/op
 
 	return(image)
 ## -------------------------- Define misc functions ----------------------##
@@ -239,12 +251,12 @@ if __name__ == '__main__':
 	r_mesh_e, phi_mesh_e = cartesian2polar(xx_e,yy_e)
 
 	## Create encoding
-	beam_waist_e = 1
+	beam_waist_e = 2
 
 	# create superposition
 	A_e = np.array([1,0,0])
 	theta_e = np.array([0,0,0])
-	l_e = np.array([2,0,0])
+	l_e = np.array([0,0,0])
 	p_e = np.array([0,0,0])
 
 	parameter_array_e = create_parameter_array(A_e, theta_e, l_e, p_e)
@@ -252,7 +264,7 @@ if __name__ == '__main__':
 	Encoding = Qstate(r_mesh_e,phi_mesh_e, wavelength=wavelength, w0=beam_waist_e)
 	Encoding.superposition(parameter_array_e)
 	hologram_matrix_e = Encoding.create_hologram_matrix(xrad_e,yrad_e,add_angle=add_angle_e,josa=josa_e)
-	
+	test = Encoding.create_hologram_matrix(xrad_e,yrad_e,add_angle=add_angle_e,josa=josa_e)
 	## --------- Measurement Hologram M parameters ------ #
 	add_angle_m = True
 	josa_m = True
@@ -311,16 +323,22 @@ if __name__ == '__main__':
 		if josa_m:
 			print("Josa intensity masking added")	
 
-		hologram_matrix_e = convert_image(hologram_matrix_e)
-		if blazzing_e is True:
-			hologram_matrix_e = blazzing(hologram_matrix_e, points=None)
 
+		hologram = np.concatenate((hologram_matrix_e, hologram_matrix_m), axis=1)
+		hologram = convert_image(hologram)
+		# hologram_matrix_e = convert_image(hologram_matrix_e)
+		# if blazzing_e is True:
+		# 	hologram_matrix_e = blazzing(hologram_matrix_e, points=None)
 
-		hologram_matrix_m = convert_image(hologram_matrix_m)
-		if blazzing_m is True:
-			hologram_matrix_m = blazzing(hologram_matrix_m, points=None)
+		# hologram_matrix_m = convert_image(hologram_matrix_m)
+		# if blazzing_m is True:
+		# 	hologram_matrix_m = blazzing(hologram_matrix_m, points=None)
+		if blazzing_e and blazzing_m:
+			hologram = blazzing(hologram)
 
-		display_two_images(hologram_matrix_e, hologram_matrix_m)
+		t1 = time.time()
+		print("%.2f s to run"%(t1-t0))
+		display_image(hologram)
 
 	else:
 		print("diplaying one hologram | E |")
@@ -336,8 +354,12 @@ if __name__ == '__main__':
 			print("No angle added")
 
 		hologram_matrix_e = convert_image(hologram_matrix_e)
+
 		if blazzing_e is True:
 			hologram_matrix_e = blazzing(hologram_matrix_e, points=None)
+
+		t1 = time.time()
+		print("%.2f s to run"%(t1-t0))
 
 		display_image(hologram_matrix_e)
 
