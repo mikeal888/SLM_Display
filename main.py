@@ -3,7 +3,6 @@ from scipy.special import eval_genlaguerre
 from scipy.misc import factorial
 import matplotlib.pyplot as plt
 from matplotlib import cm
-import display_hologram as dh
 from win32api import EnumDisplayMonitors
 import cv2
 
@@ -187,6 +186,7 @@ if two_display:
 	t1 = time.time()
 	print("%.2f s to run"%(t1-t0))
 	display_image(hologram)
+	print("\nType kill_image() to kill hologram display")
 
 else:
 	# Print all essential information
@@ -213,4 +213,5 @@ else:
 	t1 = time.time()
 	print("%.2f s to run"%(t1-t0))
 	display_image(hologram_matrix_e)
+	print("\nType kill_image() to kill hologram display")
 

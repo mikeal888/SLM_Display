@@ -4,11 +4,8 @@ from scipy.misc import factorial
 from scipy.interpolate import interp1d
 import matplotlib.pyplot as plt
 from matplotlib import cm
-import display_hologram as dh
 from win32api import EnumDisplayMonitors
 import cv2
-
-import display_hologram as dh
 
 ## ---- ------ ---- ------ Define Hologram functions first ---------------------- ##
 
@@ -88,6 +85,9 @@ def blazzing(image, points=None):
 
 	return(image)
 
+def kill_image():
+	# destroy all windows 
+	cv2.destroyAllWindows()
 ## -------------------------- Define misc functions ----------------------##
 
 def Gaussian(xdata, x0, sigma):
