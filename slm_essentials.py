@@ -1,5 +1,5 @@
 import numpy as np 
-from scipy.special import eval_genlaguerre
+from scipy.special import eval_genlaguerre, eval_hermite
 from scipy.misc import factorial
 from scipy.interpolate import interp1d
 import matplotlib.pyplot as plt
@@ -99,9 +99,13 @@ def Gaussian(xdata, x0, sigma):
 
 def Gaussian2d(xdata, ydata, x0=0, y0=0, sigma_x=1, sigma_y=1):
 
-	gauss = Gaussian(xx, x0, sigma_x)*Gaussian(yy,y0,sigma_y)
+	gauss = Gaussian(xdata, x0, sigma_x)*Gaussian(ydata,y0,sigma_y)
 
 	return(gauss)
+
+def RadGauss4d(r,r0=0,sigma=1):
+
+	return np.exp(-0.5*((r - r0)/sigma)**4) 
 
 def cartesian2polar(xdata, ydata):
 	# convert cartesian to polar
@@ -123,11 +127,11 @@ def LG_pl(r, phi, l, p, z=0, wavelength=0.001, w0=1):
 	al = abs(l)
 
 	# define all coefficients
-	cf1 = np.sqrt((2*factorial(p))/((wz**2)*factorial(al+p)*np.pi))
+	cf1 = np.sqrt((2*factorial(p))/(factorial(al+p)*np.pi))	
 	cf2 = ((r*np.sqrt(2))/wz)**al
 	cf3 = np.exp(-(r**2)/wz**2)
 	cf4 = np.exp(1j*l*phi) 
-	cf5 = np.exp(1j*(k*z*r**2)/(2*(z+zR**2)))
+	cf5 = np.exp(1j*(k*z*r**2)/(2*(z**2+zR**2)))
 	cf6 = np.exp(-1j*(2*p + al + 1)*np.arctan(z/zR))
 
 	# Calculate lg mode
@@ -135,9 +139,31 @@ def LG_pl(r, phi, l, p, z=0, wavelength=0.001, w0=1):
 
 	return(LG)
 
-def create_parameter_array(A,theta,l,p):
+def HG_nm(x, y, n, m, z=0, wavelength=0.001, w0=1):
+	# Create Hermite Gauss modes
+	k = 2*np.pi / wavelength
+	zR = (k*w0**2)/2
+	wz = np.sqrt(2*(z**2 + zR**2)/(k*zR))
+
+	# Define all coefficients
+	cf1 = np.sqrt(2/(np.pi*factorial(n)*factorial(m)))*2**(-(n+m)/2)
+	cf2 = w0/wz
+	cf3 = np.exp(-(x**2 + y**2)/(wz**2))
+	cf4 = np.exp(-1j*(k*z*(x**2 + y**2))/(2*(z**2 + zR**2)))
+	cf5 = np.exp(-1j*(n+m+1)*np.arctan(z/zR))
+
+	# make hermite modes
+	Hn = eval_hermite(int(n), np.sqrt(2)*x/wz)
+	Hm = eval_hermite(int(m), np.sqrt(2)*y/wz)
+
+	# Calculate HG mode
+	HG = cf1*cf2*cf3*cf4*cf5*Hn*Hm
+
+	return(HG)
+
+def create_parameter_array(A,theta,alpha,beta):
 	## - Create parameter array for superpositions
-	return(np.transpose(np.append([A],[theta,l,p], axis=0)))
+	return(np.transpose(np.append([A],[theta,alpha,beta], axis=0)))
 
 
 ## ---------------------- Create Quantum and hologram objects ------------------------ ##
@@ -150,8 +176,9 @@ class Qstate:
 	# Qstate object contains all the required functions to build an amplitude matrix
 	# of a quantum state
 
-	def __init__(self, r, phi, wavelength=0.001, w0=1):
+	def __init__(self, r, phi, wavelength=0.001, w0=1, basis="LG"):
 		
+		# Initial parameters
 		self.state = None
 		self.hologram_matrix = None
 		self.r = r
@@ -159,15 +186,31 @@ class Qstate:
 		self.x, self.y = polar2cartesian(self.r, self.phi)
 		self.wavelength= wavelength
 		self.w0 = w0
+		self.basis = basis
 
-	def add_mode(self, A, theta, l, p):
+	def add_mode(self, A, theta, alpha, beta):
 		# Add an extra Laguerre gauss mode to state
+		# If LG ==> alpha, beta = l, p
+		# If HG ==> alpha, beta = n, m
 
-		if self.state is None:
-			self.state = A*np.exp(1j*theta)*LG_pl(self.r, self.phi, l, p, wavelength=self.wavelength, w0=self.w0)
-		
+		if self.basis is 'LG':
+			if self.state is None:
+				self.state = A*np.exp(1j*theta)*LG_pl(self.r, self.phi, alpha, beta, wavelength=self.wavelength, w0=self.w0)
+			
+			else:
+				self.state += A*np.exp(1j*theta)*LG_pl(self.r, self.phi, alpha, beta, wavelength=self.wavelength, w0=self.w0)
+
+		elif self.basis is 'HG':
+			if self.state is None:
+				self.state = A*np.exp(1j*theta)*HG_nm(self.x, self.y, alpha, beta, wavelength=self.wavelength, w0=self.w0)
+			
+			else:
+				self.state += A*np.exp(1j*theta)*HG_nm(self.x, self.y, alpha, beta, wavelength=self.wavelength, w0=self.w0)
+
 		else:
-			self.state += A*np.exp(1j*theta)*LG_pl(self.r, self.phi, l, p, wavelength=self.wavelength, w0=self.w0)
+			print("WARNING! mode parameter ins 'add_mode' must eqaul 'LG' or 'HG'")
+
+
 
 	def superposition(self, Params):
 		# Parameter array should be = [A, theta, l, p]
@@ -176,6 +219,42 @@ class Qstate:
 		for ii in Params:
 			self.add_mode(ii[0],ii[1],ii[2],ii[3])
 
+	def propagate(self,d):
+		# Propagate image in paraxial limit 
+		# This is all based of Labviews function 
+		
+		# Firstly have to calculate k_z in paraxial limit k_z = k - (k_r^2)/(2k)
+		self.k = 2*np.pi/self.wavelength
+
+		def waveNumberArray(N, s):
+			# Calculate wavenumber array k_i, 
+			# s = physical size of array
+			# N = length of array
+
+			nyq = N/2		# Nyquist
+			N_vec = np.linspace(0,N-1,N)
+			k_vec = 2*np.pi*(((N_vec+nyq)%N)-nyq)/s
+
+			return k_vec
+
+		Ny,Nx = np.shape(self.r) 
+		sx, sy = 2*np.abs(self.x[:,0][0]), 2*np.abs(self.y[0][0])
+		k_x, k_y= np.meshgrid(waveNumberArray(Nx, sx), waveNumberArray(Ny, sy))
+
+		# Compute k_z
+		k_z = self.k - (k_x**2 + k_y**2)/(2*self.k)
+
+		# Convert amplitude matrix to K space for propagation
+		fft2d = np.fft.fft2(self.state)
+
+		# Propagate beam using exp(i*k_z*d)
+		fft2d = np.exp(1j*k_z*d)*fft2d
+
+		# Convert back to real space
+
+		self.state = np.fft.ifft2(fft2d)
+
+
 	def intensity_image(self, noise=False, sigma=0.2):
 
 		# Display intensity image of state
@@ -183,14 +262,15 @@ class Qstate:
 		profile = np.real(np.conjugate(self.state)*self.state)
 		cmap = 'gist_heat'
 		plt.pcolormesh(self.x, self.y, profile, cmap = cmap)
-		plt.xlim((np.min(x)/2,np.max(x)/2))
-		plt.ylim((np.min(y)/2,np.max(y)/2))
+		plt.xlim((np.min(self.x)/2,np.max(self.x)/2))
+		plt.ylim((np.min(self.y)/2,np.max(self.y)/2))
 		plt.show()
 
 	def phase_image(self):
-		# create an image of the phase 
+
+		# create an image of the phase
+
 		gradient = np.angle(self.state)
-		x, y = polar2cartesian(self.r, self.phi)
 		cmap = 'gray'
 		plt.pcolormesh(self.x, self.y, gradient, cmap=cmap)
 		plt.show()
